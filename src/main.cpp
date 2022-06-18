@@ -3,6 +3,8 @@
 #include <PS4Controller.h>
 #include <FastLED.h>
 
+// #define CAN_ds
+
 #define LED_PIN 27
 
 const double k_max_speed = 0.5;
@@ -21,12 +23,24 @@ void update_led(uint8_t R, uint8_t G, uint8_t B){
 }
 
 int update_md(uint32_t id, int16_t data[4]){
-  CAN.beginPacket(id, 8);
-  for (int i = 0; i < 4; i++) {
-    CAN.write(data[i] >> 8 & 0xFF);
-    CAN.write(data[i] & 0xFF);
+  
+  //debug
+  Serial.printf("id : %d\n", id);
+  Serial.printf("data : %d, %d, %d, %d\n", data[0], data[1], data[2], data[3]);
+  #if defined(CAN_ds)
+  return 1;
+  #else
+  if(!CAN.beginPacket(id, 8)){
+    return 0;
   }
+  for (int i = 0; i < 4; i++) {
+    CAN.write(data[i] & 0xFF);
+    CAN.write(data[i] >> 8 & 0xFF);
+  }
+
   return CAN.endPacket();
+  #endif
+
 }
 
 void setup() {
@@ -34,11 +48,15 @@ void setup() {
   Serial.begin(115200);
   FastLED.addLeds<SK6812, LED_PIN, RGB>(led, 1); //GRB order
   update_led(0, 0, 0);
-  PS4.begin("1a:2b:3c:01:01:01");
+  uint8_t btmac[6];
+  esp_read_mac(btmac, ESP_MAC_BT);
+  Serial.printf("[Bluetooth] Mac Address = %02X:%02X:%02X:%02X:%02X:%02X\r\n", btmac[0], btmac[1], btmac[2], btmac[3], btmac[4], btmac[5]);
+  PS4.begin("4C:75:25:92:31:52");
   Serial.println("Ready.");
-  update_led(0, 128, 0);
+  update_led(128, 0, 0);
   CAN.setPins(19, 22);
   CAN.begin(1000e3);
+  update_led(0, 128, 0);
 }
 
 void loop() {
@@ -52,11 +70,18 @@ void loop() {
 
     md_data[0] = k_max_speed * (in_data[0] * cos(PI*2.0/3.0) + in_data[1] * sin(PI*2.0/3.0))
       + k_max_turn_speed * in_data[2];
-    md_data[1] = k_max_speed * (in_data[0] * cos(PI*4.0/3.0) + in_data[1] * sin(PI*2.0/3.0))
+    md_data[1] = k_max_speed * (in_data[0] * cos(PI*4.0/3.0) + in_data[1] * sin(PI*4.0/3.0))
       + k_max_turn_speed * in_data[2];
     md_data[2] = k_max_speed * in_data[0]
       + k_max_turn_speed * in_data[2];
     update_md(MD_ID, md_data);
+
+    // if(PS4.PSButton()){
+    //   PS4.attachOnDisconnect([](){
+    //     Serial.println("Disconnected.");
+    //     update_led(0, 0, 0);
+    //   });
+    // }
 
     Serial.printf("Battery Level : %d\n", PS4.Battery());
     Serial.println();

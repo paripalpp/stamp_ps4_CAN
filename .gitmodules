@@ -1,0 +1,6 @@
+[submodule "lib/FastLED"]
+	path = lib/FastLED
+	url = https://github.com/FastLED/FastLED
+[submodule "lib/PS4-esp32"]
+	path = lib/PS4-esp32
+	url = https://github.com/aed3/PS4-esp32
