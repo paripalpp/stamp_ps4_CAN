@@ -14,6 +14,7 @@ CRGB led[1];
 
 int16_t in_data[3];
 const uint32_t MD_ID = 0x01;
+const uint32_t sol_ID = 0x06;
 int16_t md_data[4] = {0, 0, 0, 0};
 
 void update_led(uint8_t R, uint8_t G, uint8_t B){
@@ -43,6 +44,18 @@ int update_md(uint32_t id, int16_t data[4]){
 
 }
 
+int update_sol(uint32_t id, uint8_t data){
+  #if defined(CAN_ds)
+  return 1;
+  #else
+  if(!CAN.beginPacket(id, 1)){
+    return 0;
+  }
+  CAN.write(data);
+  return CAN.endPacket();
+  #endif
+}
+
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(115200);
@@ -55,7 +68,7 @@ void setup() {
   Serial.println("Ready.");
   update_led(128, 0, 0);
   CAN.setPins(19, 22);
-  CAN.begin(1000e3);
+  CAN.begin(1e6);
   update_led(0, 128, 0);
 }
 
@@ -75,6 +88,14 @@ void loop() {
     md_data[2] = k_max_speed * in_data[0]
       + k_max_turn_speed * in_data[2];
     update_md(MD_ID, md_data);
+
+    if(PS4.Circle()){
+      update_sol(sol_ID, 0b10101010);
+    }else if(PS4.Cross()){
+      update_sol(sol_ID, 0b01010101);
+    }else{
+      update_sol(sol_ID, 0b00000000);
+    }
 
     // if(PS4.PSButton()){
     //   PS4.attachOnDisconnect([](){
