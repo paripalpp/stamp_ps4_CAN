@@ -14,6 +14,7 @@ typedef struct{
   uint32_t delay_time;
 }sol_pattern_typedef;
 
+QueueHandle_t queueHandle_run;
 QueueHandle_t queueHandle_md;
 QueueHandle_t queueHandle_sol;
 
@@ -60,37 +61,48 @@ int update_sol(uint32_t id, uint8_t data){
 
 //task
 void task_md_update(void *id) {
+  int run = 0;
   md_data_typedef output = {0, 0, 0, 0};
   delay(500);
   while (1) {
     xQueueReceive(queueHandle_md,&output,100);
+    xQueuePeek(queueHandle_run, &run,0);
 
-    CAN.beginPacket(*(int*)id, 8);
-    for (int i = 0; i < 4; i++) {
-      CAN.write(output[i] & 0xFF);
-      CAN.write(output[i] >> 8 & 0xFF);
+    if(run){
+      CAN.beginPacket(*(int*)id, 8);
+      for (int i = 0; i < 4; i++) {
+        CAN.write(output[i] & 0xFF);
+        CAN.write(output[i] >> 8 & 0xFF);
+      }
+      CAN.endPacket();
+      Serial.printf("MD updated\t id:%d\t 1:%d\t 2:%d\t 3:%d\t 4:%d\r\n", *(int*)id, output[0], output[1], output[2], output[3]);
     }
-    CAN.endPacket();
 
     delay(5);
   }
 }
 
 void task_sol_update(void *id) {
+  int run = 0;
   sol_pattern_typedef output = {0x00, 0x00, 0};
   delay(500);
   while (1) {
     xQueueReceive(queueHandle_sol,&output,portMAX_DELAY);
+    xQueuePeek(queueHandle_run, &run,0);
 
-    CAN.beginPacket(*(int*)id, 1);
-    CAN.write(output.state1);
-    CAN.endPacket();
+    if(run){
+      CAN.beginPacket(*(int*)id, 1);
+      CAN.write(output.state1);
+      CAN.endPacket();
+      Serial.printf("sol updated\t id:%d\t data:%x\r\n", *(int*)id, output.state1);
 
-    delay(output.delay_time);
+      delay(output.delay_time);
 
-    CAN.beginPacket(*(int*)id, 1);
-    CAN.write(output.state2);
-    CAN.endPacket();
+      CAN.beginPacket(*(int*)id, 1);
+      CAN.write(output.state2);
+      CAN.endPacket();
+      Serial.printf("sol updated\t id:%d\t data:%x\r\n", *(int*)id, output.state2);
+    }
 
     delay(5);
   }
@@ -110,6 +122,7 @@ void loop() {
 
   // put your setup code here, to run once:
   Serial.begin(115200);
+  Serial.println("reseted");
 
   //LED init
   FastLED.addLeds<SK6812, LED_PIN, RGB>(led, 1); //GRB order
@@ -133,7 +146,7 @@ void loop() {
     task_sol_update,
     "task_sol_update",
     8192,
-    (void*)&MD_ID,
+    (void*)&sol_ID,
     1,
     &taskHandle_sol_update,
     APP_CPU_NUM
@@ -142,12 +155,13 @@ void loop() {
   //queue create
   queueHandle_md = xQueueCreate(1, sizeof(md_data_typedef));
   queueHandle_sol = xQueueCreate(1, sizeof(sol_pattern_typedef));
+  queueHandle_run = xQueueCreate(1, sizeof(int));
 
   //bluetooth for PS4 init
   uint8_t btmac[6];
   esp_read_mac(btmac, ESP_MAC_BT);
   Serial.printf("[Bluetooth] Mac Address = %02X:%02X:%02X:%02X:%02X:%02X\r\n", btmac[0], btmac[1], btmac[2], btmac[3], btmac[4], btmac[5]);
-  PS4.begin("4C:75:25:92:34:9E");
+  PS4.begin("4C:75:25:92:31:52");
   
   //PS4 event callback def
   ps4SetEventCallback([](ps4_t ps4, ps4_event_t event){
@@ -177,6 +191,12 @@ void loop() {
     if(event.button_up.cross){
       sol_pattern_typedef data = {0b01010101, 0b00000000, 500};
       xQueueOverwrite(queueHandle_sol, &data);
+    }
+    if(event.button_up.ps){
+      int run = 1;
+      xQueuePeek(queueHandle_run, &run, 0);
+      run = !run;
+      xQueueOverwrite(queueHandle_run, &run);
     }
   });
   ps4SetConnectionCallback([](uint8_t isConnected){
