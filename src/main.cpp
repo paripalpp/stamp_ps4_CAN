@@ -3,17 +3,13 @@
 #include <PS4Controller.h>
 #include <FastLED.h>
 
+#include "vector3f.h"
+
 // #define CAN_ds
 
 #define LED_PIN 27
 
 typedef int16_t md_data_typedef[4];
-
-typedef struct{
-  float x;
-  float y;
-  float z;
-}vector3f_typedef;
 
 typedef struct{
   uint8_t state1;
@@ -101,11 +97,24 @@ void task_stamp_led(void *arg) {
 }
 
 void task_speed_pid(void *arg) {
-  vector3f_typedef speed_current;
-  vector3f_typedef speed_target;
+  const float tire_rot = 0.1 * PI;
+  const float tire_loc = 0.3;
+  const vector3f m1_vec = {cos(PI*2.0/3.0) * tire_rot, sin(PI*2.0/3.0) * tire_rot, tire_loc * tire_rot}
+
+  timed_vector_typedef speed_current;
+  timed_vector_typedef speed_prev;
+  vector3f integral_speed;
+  
+  vector3f speed_target;
+
+  md_data_typedef out = {0, 0, 0, 0};
   while(1){
     xQueueReceive(queueHandle_speed_cur, &speed_current, 100);
     xQueueReceive(queueHandle_speed_tar, &speed_target, 0);
+
+
+
+    speed_prev = speed_current;
     delay(1);
   }
 }
@@ -146,12 +155,13 @@ void loop() {
   CAN.onReceive([](int packetSize){
     const long id_sensor_board0_0 = 9;
     const long id_sensor_board0_1 = 10;
-    // if(CAN.packet_id == id_sensor_board0_0){
+    
+    if(CAN.packetId() == id_sensor_board0_0){
       
-    // }
-    // if(CAN.packet_id == id_sensor_board0_1){
+    }
+    if(CAN.packetId() == id_sensor_board0_1){
 
-    // }
+    }
   });
 
   //bluetooth for PS4 init
