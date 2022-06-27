@@ -128,7 +128,7 @@ void loop() {
   Serial.println("reseted");
 
   //task create
-  xTaskCreateUniversal(task_md_update,  "task_md_update",   8192, (void*)&MD_ID,  3,  &taskHandle_md_update,  APP_CPU_NUM);
+  xTaskCreateUniversal(task_md_update,  "task_md_update",   8192, (void*)&MD_ID,  1,  &taskHandle_md_update,  APP_CPU_NUM);
   xTaskCreateUniversal(task_sol_update, "task_sol_update",  8192, (void*)&sol_ID, 1,  &taskHandle_sol_update, APP_CPU_NUM);
   xTaskCreateUniversal(task_stamp_led,  "task_stamp_led",   8192, NULL,           1,  &taskHandle_stamp_led,  APP_CPU_NUM);
 
@@ -146,12 +146,12 @@ void loop() {
   CAN.onReceive([](int packetSize){
     const long id_sensor_board0_0 = 9;
     const long id_sensor_board0_1 = 10;
-    if(CAN.packet_id == id_sensor_board0_0){
+    // if(CAN.packet_id == id_sensor_board0_0){
       
-    }
-    if(CAN.packet_id == id_sensor_board0_1){
+    // }
+    // if(CAN.packet_id == id_sensor_board0_1){
 
-    }
+    // }
   });
 
   //bluetooth for PS4 init
