@@ -181,15 +181,15 @@ void loop() {
         + k_max_turn_speed * in_data[2];
       xQueueOverwrite(queueHandle_md, data);
     }
-    if(event.button_up.circle){
+    if(event.button_down.circle){
       sol_pattern_typedef data = {0b10101010, 0b00000000, 500};
       xQueueOverwrite(queueHandle_sol, &data);
     }
-    if(event.button_up.cross){
+    if(event.button_down.cross){
       sol_pattern_typedef data = {0b01010101, 0b00000000, 500};
       xQueueOverwrite(queueHandle_sol, &data);
     }
-    if(event.button_up.ps){
+    if(event.button_down.ps){
       int run = 1;
       xQueuePeek(queueHandle_run, &run, 0);
       run = !run;
@@ -208,6 +208,7 @@ void loop() {
         controller.flashOff = 16;
       }
       ps4SetOutput(controller);
+      Serial.printf("is run : %d\r\n", run);
     }
   });
   ps4SetConnectionCallback([](uint8_t isConnected){
@@ -231,8 +232,25 @@ void loop() {
   while(1){
     // put your main code here, to run repeatedly:
     if (PS4.isConnected()) {
-      Serial.printf("Battery Level : %d\n", PS4.Battery());
-      Serial.println();
+      int run = 1;
+      uint8_t bat_lev = PS4.Battery();
+      Serial.printf("Battery Level : %d\r\n", bat_lev);
+      xQueuePeek(queueHandle_run, &run, 0);
+      if(run){
+        ps4_cmd_t controller = {0, 0, 0, 0, 0, 0, 0};
+        if(bat_lev > 1){
+          controller.r = 0;
+          controller.g = 0;
+          controller.b = 255;
+        }else{
+          controller.r = 255;
+          controller.g = 128;
+          controller.b = 0;
+        controller.flashOn = 64;
+        controller.flashOff = 32;
+        }
+        ps4SetOutput(controller);
+      }
     }else{
       Serial.println("Controller not connected.");
     }
