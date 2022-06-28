@@ -23,11 +23,14 @@ typedef struct{
   uint8_t blue;
 }RGB_typedef;
 
+typedef uint8_t CAN_msg_data[8];
+
 QueueHandle_t queueHandle_run;
 QueueHandle_t queueHandle_md;
 QueueHandle_t queueHandle_sol;
 QueueHandle_t queueHandle_led;
-QueueHandle_t queueHandle_speed_cur;
+QueueHandle_t queueHandle_encoder0_0;
+QueueHandle_t queueHandle_encoder0_1;
 QueueHandle_t queueHandle_speed_tar;
 
 //task
@@ -99,7 +102,9 @@ void task_stamp_led(void *arg) {
 void task_speed_pid(void *arg) {
   const float tire_rot = 0.1 * PI;
   const float tire_loc = 0.3;
-  const vector3f m1_vec = {cos(PI*2.0/3.0) * tire_rot, sin(PI*2.0/3.0) * tire_rot, tire_loc * tire_rot}
+  const vector3f m0_vec = {cos(PI*2.0/3.0) * tire_rot, sin(PI*2.0/3.0) * tire_rot, tire_loc * tire_rot};
+  const vector3f m1_vec = {cos(PI*4.0/3.0) * tire_rot, sin(PI*4.0/3.0) * tire_rot, tire_loc * tire_rot};
+  const vector3f m2_vec = {1, 0, tire_loc * tire_rot};
 
   timed_vector_typedef speed_current;
   timed_vector_typedef speed_prev;
@@ -109,7 +114,8 @@ void task_speed_pid(void *arg) {
 
   md_data_typedef out = {0, 0, 0, 0};
   while(1){
-    xQueueReceive(queueHandle_speed_cur, &speed_current, 100);
+    xQueueReceive(queueHandle_encoder0_0, &speed_current, 100);
+    xQueueReceive(queueHandle_encoder0_0, &speed_current, 50);
     xQueueReceive(queueHandle_speed_tar, &speed_target, 0);
 
 
@@ -156,6 +162,7 @@ void loop() {
     const long id_sensor_board0_0 = 9;
     const long id_sensor_board0_1 = 10;
     
+
     if(CAN.packetId() == id_sensor_board0_0){
       
     }
@@ -224,8 +231,18 @@ void loop() {
   ps4SetConnectionCallback([](uint8_t isConnected){
     if(isConnected){
       RGB_typedef blue = {0, 0, 128};
-      PS4.setLed(0, 0, 255);
       xQueueOverwrite(queueHandle_led, &blue);
+
+      int run = 0;
+      xQueueOverwrite(queueHandle_run, &run);
+      ps4_cmd_t controller = {0, 0, 0, 0, 0, 0, 0};
+      controller.r = 255;
+      controller.g = 0;
+      controller.b = 0;
+      controller.flashOn = 16;
+      controller.flashOff = 16;
+      ps4SetOutput(controller);
+      Serial.printf("is run : %d\r\n", run);
     }else{
       RGB_typedef red = {128, 0, 0};
       md_data_typedef data = {0, 0, 0, 0};

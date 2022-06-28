@@ -8,28 +8,28 @@ class vector3f{
     ret.x = arg[0];
     ret.y = arg[1];
     ret.z = arg[2];
-    return *ret;
+    return ret;
   }
   vector3f operator =(vector3f& arg){
     vector3f ret;
     ret.x = arg.x;
     ret.y = arg.y;
     ret.z = arg.z;
-    return *ret;
+    return ret;
   }
   vector3f operator *(float arg){
     vector3f ret;
     ret.x *= arg;
     ret.y *= arg;
     ret.z *= arg;
-    return *ret;
+    return ret;
   }
   vector3f operator *(vector3f& arg){
     vector3f ret;
     ret.x *= arg.x;
     ret.y *= arg.y;
     ret.z *= arg.z;
-    return *ret;
+    return ret;
   }
   vector3f operator *=(float arg){
     this->x *= arg;
@@ -48,14 +48,14 @@ class vector3f{
     ret.x += arg;
     ret.y += arg;
     ret.z += arg;
-    return *ret;
+    return ret;
   }
   vector3f operator +(vector3f& arg){
     vector3f ret;
     ret.x += arg.x;
     ret.y += arg.y;
     ret.z += arg.z;
-    return *ret;
+    return ret;
   }
   vector3f operator +=(float arg){
     this->x += arg;
