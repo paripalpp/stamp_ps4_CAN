@@ -32,6 +32,7 @@ QueueHandle_t queueHandle_led;
 QueueHandle_t queueHandle_encoder0_0;
 QueueHandle_t queueHandle_encoder0_1;
 QueueHandle_t queueHandle_speed_tar;
+QueueHandle_t queueHandle_position_cur;
 
 //task
 void task_md_update(void *id) {
@@ -49,7 +50,7 @@ void task_md_update(void *id) {
         CAN.write(output[i] >> 8 & 0xFF);
       }
       CAN.endPacket();
-      Serial.printf("MD updated\t id:%d\t 1:%d\t 2:%d\t 3:%d\t 4:%d\r\n", *(int*)id, output[0], output[1], output[2], output[3]);
+      // Serial.printf("MD updated\t id:%d\t 1:%d\t 2:%d\t 3:%d\t 4:%d\r\n", *(int*)id, output[0], output[1], output[2], output[3]);
     }
 
     delay(5);
@@ -105,27 +106,30 @@ void task_speed_pid(void *arg) {
   const float odm_rot  = 0.1 * PI;
   const float odm_loc  = 0.3;
   const float odm_ppr  = 100;
-  const vector3f m0_vec = {cos(PI*2.0/3.0) * tire_rot, sin(PI*2.0/3.0) * tire_rot, tire_loc * tire_rot};
-  const vector3f m1_vec = {cos(PI*4.0/3.0) * tire_rot, sin(PI*4.0/3.0) * tire_rot, tire_loc * tire_rot};
-  const vector3f m2_vec = {tire_rot, 0, tire_loc * tire_rot};
-  const vector3f e0_vec = {cos(PI*1.0/3.0) / odm_rot / odm_ppr / 3.0, sin(PI*1.0/3.0) / odm_rot / odm_ppr / 3.0, 1.0 / odm_loc / odm_rot / odm_ppr / 3.0};
-  const vector3f e1_vec = {-1.0 / odm_rot / odm_ppr / 3.0, 0, -1.0 / odm_loc / odm_rot / odm_ppr / 3.0};
-  const vector3f e2_vec = {cos(PI*5.0/3.0) / odm_rot / odm_ppr / 3.0, sin(PI*5.0/3.0) / odm_rot / odm_ppr / 3.0, 1.0 / odm_loc / odm_rot / odm_ppr / 3.0};
+  const float odm_deg[3] = {PI*1.0/3.0, PI*3.0/3.0, PI*5.0/3.0};
+  const matrix3f tire_vec = {
+    vector3f{cos(PI*2.0/3.0) * tire_rot, sin(PI*2.0/3.0) * tire_rot, tire_loc * tire_rot},
+    vector3f{cos(PI*4.0/3.0) * tire_rot, sin(PI*4.0/3.0) * tire_rot, tire_loc * tire_rot},
+    vector3f{tire_rot, 0, tire_loc * tire_rot}};
 
   timed_vector_typedef data_cur;
   timed_vector_typedef data_prev;
 
-  vector3f position_current;
-  vector3f position_prev;
+  vector3f position_current{0, 0, 0};
+  vector3f position_prev{0, 0, 0};
 
-  vector3f speed_current;
-  vector3f speed_prev;
-  vector3f integral_speed;
+  vector3f speed_current{0, 0, 0};
+  vector3f speed_prev{0, 0, 0};
+  vector3f integral_speed{0, 0, 0};
   
-  vector3f speed_target;
+  vector3f speed_target{0, 0, 0};
 
   md_data_typedef md_out = {0, 0, 0, 0};
   while(1){
+    matrix3f odm_mat = {
+      vector3f{1.0 / odm_loc / odm_rot / odm_ppr / 3.0, 1.0 / odm_loc / odm_rot / odm_ppr / 3.0, 1.0 / odm_loc / odm_rot / odm_ppr / 3.0},
+      vector3f{1.0 / odm_loc / odm_rot / odm_ppr / 3.0, 1.0 / odm_loc / odm_rot / odm_ppr / 3.0, 1.0 / odm_loc / odm_rot / odm_ppr / 3.0},
+      vector3f{1.0 / odm_loc / odm_rot / odm_ppr / 3.0, 1.0 / odm_loc / odm_rot / odm_ppr / 3.0, 1.0 / odm_loc / odm_rot / odm_ppr / 3.0}};
     CAN_msg_data encoder_data0_0 = {0, 0, 0, 0, 0, 0, 0, 0};
     CAN_msg_data encoder_data0_1 = {0, 0, 0, 0, 0, 0, 0, 0};
     xQueueReceive(queueHandle_encoder0_0, &encoder_data0_0, 100);
@@ -137,13 +141,25 @@ void task_speed_pid(void *arg) {
       {
         data_cur.time = encoder_data0_0[i] << (8 * i);
       }
-      data_cur[0] = ;
+      data_cur.vector.x = (float)(encoder_data0_0[5] | encoder_data0_0[6] << 8);
+      data_cur.vector.y = (float)(encoder_data0_0[7] | encoder_data0_1[0] << 8);
+      data_cur.vector.z = (float)(encoder_data0_1[1] | encoder_data0_1[2] << 8);
       if(data_prev.time == 0){
         data_prev = data_cur;
+        return;
       }
+      vector3f odm_x{cos(odm_deg[0] + position_prev.z), cos(odm_deg[1] + position_prev.z), cos(odm_deg[2] + position_prev.z)};
+      vector3f odm_y{sin(odm_deg[0] + position_prev.z), sin(odm_deg[1] + position_prev.z), sin(odm_deg[2] + position_prev.z)};
+      odm_mat.row[0] *= odm_x;
+      odm_mat.row[1] *= odm_y;
+      speed_current = odm_mat * (data_cur.vector - data_prev.vector) * (1000.0 / (data_cur.time - data_prev.time));
+      position_current = position_prev + &speed_prev * ((data_cur.time - data_prev.time) / 1000.0);
+
+      speed_prev = speed_current;
       position_prev = position_current;
-      delay(1);
     } ();
+    xQueueOverwrite(queueHandle_position_cur, &position_current);
+    delay(1);
   }
 }
 
@@ -179,6 +195,7 @@ void loop() {
   queueHandle_encoder0_0 = xQueueCreate(1, sizeof(CAN_msg_data));
   queueHandle_encoder0_1 = xQueueCreate(1, sizeof(CAN_msg_data));
   queueHandle_speed_tar = xQueueCreate(1, sizeof(vector3f));
+  queueHandle_position_cur = xQueueCreate(1, sizeof(vector3f));
 
   //CAN init
   CAN.setPins(19, 22);
@@ -323,6 +340,11 @@ void loop() {
     }else{
       Serial.println("Controller not connected.");
     }
+    
+    //get and print current position
+    vector3f pos{0, 0, 0};
+    xQueuePeek(queueHandle_position_cur, &pos, 0);
+    Serial.printf("position : x:%f, y:%f, z:%f\r\n", pos.x, pos.y, pos.z);
     //plese keep this delay bigger than 1. if not, main task stopped by WTD
     //(WTD is enabled to restart when CAN message writing failue)
     delay(500);
