@@ -102,26 +102,48 @@ void task_stamp_led(void *arg) {
 void task_speed_pid(void *arg) {
   const float tire_rot = 0.1 * PI;
   const float tire_loc = 0.3;
+  const float odm_rot  = 0.1 * PI;
+  const float odm_loc  = 0.3;
+  const float odm_ppr  = 100;
   const vector3f m0_vec = {cos(PI*2.0/3.0) * tire_rot, sin(PI*2.0/3.0) * tire_rot, tire_loc * tire_rot};
   const vector3f m1_vec = {cos(PI*4.0/3.0) * tire_rot, sin(PI*4.0/3.0) * tire_rot, tire_loc * tire_rot};
-  const vector3f m2_vec = {1, 0, tire_loc * tire_rot};
+  const vector3f m2_vec = {tire_rot, 0, tire_loc * tire_rot};
+  const vector3f e0_vec = {cos(PI*1.0/3.0) / odm_rot / odm_ppr / 3.0, sin(PI*1.0/3.0) / odm_rot / odm_ppr / 3.0, 1.0 / odm_loc / odm_rot / odm_ppr / 3.0};
+  const vector3f e1_vec = {-1.0 / odm_rot / odm_ppr / 3.0, 0, -1.0 / odm_loc / odm_rot / odm_ppr / 3.0};
+  const vector3f e2_vec = {cos(PI*5.0/3.0) / odm_rot / odm_ppr / 3.0, sin(PI*5.0/3.0) / odm_rot / odm_ppr / 3.0, 1.0 / odm_loc / odm_rot / odm_ppr / 3.0};
 
-  timed_vector_typedef speed_current;
-  timed_vector_typedef speed_prev;
+  timed_vector_typedef data_cur;
+  timed_vector_typedef data_prev;
+
+  vector3f position_current;
+  vector3f position_prev;
+
+  vector3f speed_current;
+  vector3f speed_prev;
   vector3f integral_speed;
   
   vector3f speed_target;
 
-  md_data_typedef out = {0, 0, 0, 0};
+  md_data_typedef md_out = {0, 0, 0, 0};
   while(1){
-    xQueueReceive(queueHandle_encoder0_0, &speed_current, 100);
-    xQueueReceive(queueHandle_encoder0_0, &speed_current, 50);
+    CAN_msg_data encoder_data0_0 = {0, 0, 0, 0, 0, 0, 0, 0};
+    CAN_msg_data encoder_data0_1 = {0, 0, 0, 0, 0, 0, 0, 0};
+    xQueueReceive(queueHandle_encoder0_0, &encoder_data0_0, 100);
+    xQueueReceive(queueHandle_encoder0_1, &encoder_data0_1, 50);
     xQueueReceive(queueHandle_speed_tar, &speed_target, 0);
 
-
-
-    speed_prev = speed_current;
-    delay(1);
+    [&](){
+      for (int i = 0; i < 5; i++)
+      {
+        data_cur.time = encoder_data0_0[i] << (8 * i);
+      }
+      data_cur[0] = ;
+      if(data_prev.time == 0){
+        data_prev = data_cur;
+      }
+      position_prev = position_current;
+      delay(1);
+    } ();
   }
 }
 
@@ -134,6 +156,7 @@ void loop() {
   TaskHandle_t taskHandle_md_update;
   TaskHandle_t taskHandle_sol_update;
   TaskHandle_t taskHandle_stamp_led;
+  TaskHandle_t taskHandle_speed_pid;
 
   //enable core1 WTD
   enableCore1WDT();
@@ -143,15 +166,19 @@ void loop() {
   Serial.println("reseted");
 
   //task create
-  xTaskCreateUniversal(task_md_update,  "task_md_update",   8192, (void*)&MD_ID,  1,  &taskHandle_md_update,  APP_CPU_NUM);
+  xTaskCreateUniversal(task_md_update,  "task_md_update",   8192, (void*)&MD_ID,  3,  &taskHandle_md_update,  APP_CPU_NUM);
   xTaskCreateUniversal(task_sol_update, "task_sol_update",  8192, (void*)&sol_ID, 1,  &taskHandle_sol_update, APP_CPU_NUM);
   xTaskCreateUniversal(task_stamp_led,  "task_stamp_led",   8192, NULL,           1,  &taskHandle_stamp_led,  APP_CPU_NUM);
+  xTaskCreateUniversal(task_speed_pid,  "task_speed_pid",   8192, NULL,           2,  &taskHandle_speed_pid,  APP_CPU_NUM);
 
   //queue create
   queueHandle_md  = xQueueCreate(1, sizeof(md_data_typedef));
   queueHandle_sol = xQueueCreate(1, sizeof(sol_pattern_typedef));
   queueHandle_run = xQueueCreate(1, sizeof(int));
   queueHandle_led = xQueueCreate(1, sizeof(RGB_typedef));
+  queueHandle_encoder0_0 = xQueueCreate(1, sizeof(CAN_msg_data));
+  queueHandle_encoder0_1 = xQueueCreate(1, sizeof(CAN_msg_data));
+  queueHandle_speed_tar = xQueueCreate(1, sizeof(vector3f));
 
   //CAN init
   CAN.setPins(19, 22);
@@ -162,12 +189,27 @@ void loop() {
     const long id_sensor_board0_0 = 9;
     const long id_sensor_board0_1 = 10;
     
+    long id = CAN.packetId();
+    CAN_msg_data send_data = {0, 0, 0, 0, 0, 0, 0, 0};
 
-    if(CAN.packetId() == id_sensor_board0_0){
-      
+    if(id == id_sensor_board0_0){
+      for (int i = 0; i < 8; i++)
+      {
+        send_data[i] = CAN.read();
+      }
+      xQueueOverwrite(queueHandle_encoder0_0, &send_data);
     }
-    if(CAN.packetId() == id_sensor_board0_1){
-
+    if(id == id_sensor_board0_1){
+      for (int i = 0; i < 8; i++)
+      {
+        send_data[i] = CAN.read();
+      }
+      xQueueOverwrite(queueHandle_encoder0_1, &send_data);
+    }
+    if(id != id_sensor_board0_0 && id != id_sensor_board0_1){
+      for(int i = 0; i < CAN.available(); i++){
+        CAN.read();
+      }
     }
   });
 
