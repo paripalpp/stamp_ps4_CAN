@@ -12,8 +12,8 @@
 typedef int16_t md_data_typedef[4];
 
 typedef struct{
-  uint8_t state1;
-  uint8_t state2;
+  uint16_t state1;
+  uint16_t state2;
   uint32_t delay_time;
 }sol_pattern_typedef;
 
@@ -58,7 +58,7 @@ void task_md_update(void *id) {
 
 void task_sol_update(void *id) {
   int run = 0;
-  sol_pattern_typedef output = {0x00, 0x00, 0};
+  sol_pattern_typedef output = {0x0000, 0x0000, 0};
   delay(50);
   while (1) {
     xQueueReceive(queueHandle_sol,&output,portMAX_DELAY);
@@ -66,14 +66,16 @@ void task_sol_update(void *id) {
 
     if(run){
       CAN.beginPacket(*(int*)id, 1);
-      CAN.write(output.state1);
+      CAN.write(0xFF & output.state1);
+      CAN.write(0xFF & output.state1 >> 8);
       CAN.endPacket();
       Serial.printf("sol updated\t id:%d\t data:%x\r\n", *(int*)id, output.state1);
 
       delay(output.delay_time);
 
       CAN.beginPacket(*(int*)id, 1);
-      CAN.write(output.state2);
+      CAN.write(0xFF & output.state2);
+      CAN.write(0xFF & output.state2 >> 8);
       CAN.endPacket();
       Serial.printf("sol updated\t id:%d\t data:%x\r\n", *(int*)id, output.state2);
     }
@@ -199,11 +201,11 @@ void loop() {
       xQueueOverwrite(queueHandle_md, data);
     }
     if(event.button_down.circle){
-      sol_pattern_typedef data = {0b10101010, 0b00000000, 500};
+      sol_pattern_typedef data = {0b0000001010101010, 0x0000, 500};
       xQueueOverwrite(queueHandle_sol, &data);
     }
     if(event.button_down.cross){
-      sol_pattern_typedef data = {0b01010101, 0b00000000, 500};
+      sol_pattern_typedef data = {0b0000000101010101, 0x0000, 500};
       xQueueOverwrite(queueHandle_sol, &data);
     }
     if(event.button_down.ps){
