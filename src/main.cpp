@@ -7,8 +7,6 @@
 
 // #define CAN_ds
 
-#define LED_PIN 27
-
 typedef int16_t md_data_typedef[4];
 
 typedef struct{
@@ -27,11 +25,10 @@ typedef uint8_t CAN_msg_data[8];
 
 QueueHandle_t queueHandle_run;
 QueueHandle_t queueHandle_md;
-QueueHandle_t queueHandle_sol;
+// QueueHandle_t queueHandle_sol;
+QueueHandle_t queueHandle_solenoids[10];
+QueueHandle_t queueHandle_triggers[5];    // 0 = spotA, 1 = spotB, 2 = leftrunway/baseA, 3 = rightrunway/baseA, 4 = baseB
 QueueHandle_t queueHandle_led;
-QueueHandle_t queueHandle_encoder0_0;
-QueueHandle_t queueHandle_encoder0_1;
-QueueHandle_t queueHandle_speed_tar;
 
 //task
 void task_md_update(void *id) {
@@ -56,40 +53,103 @@ void task_md_update(void *id) {
   }
 }
 
-void task_sol_update(void *id) {
+// void task_sol_update(void *id) {
+//   int run = 0;
+//   sol_pattern_typedef output = {0x0000, 0x0000, 0};
+//   delay(50);
+//   while (1) {
+//     xQueueReceive(queueHandle_sol,&output,portMAX_DELAY);
+//     xQueuePeek(queueHandle_run, &run,0);
+//
+//     if(run){
+//       CAN.beginPacket(*(int*)id, 1);
+//       CAN.write(0xFF & output.state1);
+//       CAN.write(0xFF & output.state1 >> 8);
+//       CAN.endPacket();
+//       Serial.printf("sol updated\t id:%d\t data:%x\r\n", *(int*)id, output.state1);
+//
+//       delay(output.delay_time);
+//
+//       CAN.beginPacket(*(int*)id, 1);
+//       CAN.write(0xFF & output.state2);
+//       CAN.write(0xFF & output.state2 >> 8);
+//       CAN.endPacket();
+//       Serial.printf("sol updated\t id:%d\t data:%x\r\n", *(int*)id, output.state2);
+//     }
+//
+//     delay(5);
+//   }
+// }
+
+typedef struct{
+  uint32_t id;
+  QueueHandle_t run;              //it must be int
+  QueueHandle_t *solenoids;       //it must be unsigned int queue
+  uint8_t num_solenoids;          //up to 10 solenoids
+  uint32_t refreash_time;         //refreash time in ms
+}solenoid_task_arg;
+
+void solenoid_task(void *arg) {
+  solenoid_task_arg params = *(solenoid_task_arg*)arg;
   int run = 0;
-  sol_pattern_typedef output = {0x0000, 0x0000, 0};
+  unsigned int sol_state = 0;
   delay(50);
   while (1) {
-    xQueueReceive(queueHandle_sol,&output,portMAX_DELAY);
-    xQueuePeek(queueHandle_run, &run,0);
-
+    xQueuePeek(params.run, &run,0);
     if(run){
-      CAN.beginPacket(*(int*)id, 1);
-      CAN.write(0xFF & output.state1);
-      CAN.write(0xFF & output.state1 >> 8);
+      for(int i = 0; i < params.num_solenoids; i++){
+        unsigned int rcv_buf = 0;
+        xQueueReceive(params.solenoids[i],&rcv_buf,0);
+        sol_state |= rcv_buf << i;
+      }
+      CAN.beginPacket(params.id, 2);
+      CAN.write(0xFF & sol_state);
+      CAN.write(0xFF & sol_state >> 8);
       CAN.endPacket();
-      Serial.printf("sol updated\t id:%d\t data:%x\r\n", *(int*)id, output.state1);
-
-      delay(output.delay_time);
-
-      CAN.beginPacket(*(int*)id, 1);
-      CAN.write(0xFF & output.state2);
-      CAN.write(0xFF & output.state2 >> 8);
-      CAN.endPacket();
-      Serial.printf("sol updated\t id:%d\t data:%x\r\n", *(int*)id, output.state2);
+      Serial.printf("sol updated\t id:%d\t data:%x\r\n", params.id, sol_state);
     }
+
+    delay(params.refreash_time);
+  }
+}
+
+typedef struct{
+  QueueHandle_t trigger;          //it msut be int queue
+  QueueHandle_t solenoid1;
+  QueueHandle_t solenoid2;
+  uint32_t t1;
+  uint32_t t2;
+  uint32_t t3;
+}launch_task_arg;
+
+void launcher_task(void *arg) {
+  launch_task_arg params = *(launch_task_arg*)arg;
+  while(1){
+    int trigger = 0;
+    xQueueReceive(params.trigger,&trigger,portMAX_DELAY);
+    xQueueOverwrite(params.solenoid1, (void*)1);
+    xQueueOverwrite(params.solenoid2, (void*)0);
+    delay(params.t1);
+    xQueueOverwrite(params.solenoid1, (void*)0);
+    xQueueOverwrite(params.solenoid2, (void*)0);
+    delay(params.t2);
+    xQueueOverwrite(params.solenoid1, (void*)0);
+    xQueueOverwrite(params.solenoid2, (void*)1);
+    delay(params.t3);
+    xQueueOverwrite(params.solenoid1, (void*)0);
+    xQueueOverwrite(params.solenoid2, (void*)0);
 
     delay(5);
   }
 }
 
 void task_stamp_led(void *arg) {
+  const uint8_t led_pin = 27;
   RGB_typedef rgb = {0, 0, 0};
   CRGB led[1];
 
   //LED init
-  FastLED.addLeds<SK6812, LED_PIN, RGB>(led, 1); //GRB order
+  FastLED.addLeds<SK6812, led_pin, RGB>(led, 1); //GRB order
   led[0] = rgb.green << 16 | rgb.red << 8 | rgb.blue;
   FastLED.show();
 
@@ -101,31 +161,6 @@ void task_stamp_led(void *arg) {
   }
 }
 
-void task_speed_pid(void *arg) {
-  const float tire_rot = 0.1 * PI;
-  const float tire_loc = 0.3;
-  const vector3f m0_vec = {cos(PI*2.0/3.0) * tire_rot, sin(PI*2.0/3.0) * tire_rot, tire_loc * tire_rot};
-  const vector3f m1_vec = {cos(PI*4.0/3.0) * tire_rot, sin(PI*4.0/3.0) * tire_rot, tire_loc * tire_rot};
-  const vector3f m2_vec = {1, 0, tire_loc * tire_rot};
-
-  timed_vector_typedef speed_current;
-  timed_vector_typedef speed_prev;
-  vector3f integral_speed;
-  
-  vector3f speed_target;
-
-  md_data_typedef out = {0, 0, 0, 0};
-  while(1){
-    xQueueReceive(queueHandle_encoder0_0, &speed_current, 100);
-    xQueueReceive(queueHandle_encoder0_0, &speed_current, 50);
-    xQueueReceive(queueHandle_speed_tar, &speed_target, 0);
-
-
-
-    speed_prev = speed_current;
-    delay(1);
-  }
-}
 
 void setup() {}
 
@@ -134,7 +169,9 @@ void loop() {
   const uint32_t sol_ID = 0x06;
 
   TaskHandle_t taskHandle_md_update;
-  TaskHandle_t taskHandle_sol_update;
+  // TaskHandle_t taskHandle_sol_update;
+  TaskHandle_t taskHandle_solenoid[1];
+  TaskHandle_t taskHandle_launcher[5];
   TaskHandle_t taskHandle_stamp_led;
 
   //enable core1 WTD
@@ -144,16 +181,30 @@ void loop() {
   Serial.begin(115200);
   Serial.println("reseted");
 
+  //queue create
+  queueHandle_run = xQueueCreate(1, sizeof(int));
+  queueHandle_md  = xQueueCreate(1, sizeof(md_data_typedef));
+  // queueHandle_sol = xQueueCreate(1, sizeof(sol_pattern_typedef));
+  for(int i = 0; i < 10; i++) {
+    queueHandle_solenoids[i] = xQueueCreate(1, sizeof(unsigned int));
+  }
+  for(int i = 0; i < 5; i++) {
+    queueHandle_triggers[i] = xQueueCreate(1, sizeof(int));
+  }
+  queueHandle_led = xQueueCreate(1, sizeof(RGB_typedef));
+
   //task create
   xTaskCreateUniversal(task_md_update,  "task_md_update",   8192, (void*)&MD_ID,  1,  &taskHandle_md_update,  APP_CPU_NUM);
-  xTaskCreateUniversal(task_sol_update, "task_sol_update",  8192, (void*)&sol_ID, 1,  &taskHandle_sol_update, APP_CPU_NUM);
+  // xTaskCreateUniversal(task_sol_update, "task_sol_update",  8192, (void*)&sol_ID, 1,  &taskHandle_sol_update, APP_CPU_NUM);
+  for(int i = 0; i < 1; i++){
+    solenoid_task_arg sol_arg = {sol_ID, queueHandle_run, queueHandle_solenoids, 10, 50};
+    xTaskCreateUniversal(solenoid_task, "solenoid_task",  8192, (void*)&sol_arg, 1,  &taskHandle_solenoid[i], APP_CPU_NUM);
+  }
+  for(int i = 0; i < 5; i++){
+    launch_task_arg launch_arg = {queueHandle_triggers[i], queueHandle_solenoids[i*2], queueHandle_solenoids[i*2+1], 500, 500, 500};
+    xTaskCreateUniversal(launcher_task, "launcher_task",  8192, (void*)&launch_arg, 1,  &taskHandle_launcher[i], APP_CPU_NUM);
+  }
   xTaskCreateUniversal(task_stamp_led,  "task_stamp_led",   8192, NULL,           1,  &taskHandle_stamp_led,  APP_CPU_NUM);
-
-  //queue create
-  queueHandle_md  = xQueueCreate(1, sizeof(md_data_typedef));
-  queueHandle_sol = xQueueCreate(1, sizeof(sol_pattern_typedef));
-  queueHandle_run = xQueueCreate(1, sizeof(int));
-  queueHandle_led = xQueueCreate(1, sizeof(RGB_typedef));
 
   //CAN init
   CAN.setPins(19, 22);
@@ -161,16 +212,6 @@ void loop() {
   
   //CAN event callback def
   CAN.onReceive([](int packetSize){
-    const long id_sensor_board0_0 = 9;
-    const long id_sensor_board0_1 = 10;
-    
-
-    if(CAN.packetId() == id_sensor_board0_0){
-      
-    }
-    if(CAN.packetId() == id_sensor_board0_1){
-
-    }
   });
 
   //bluetooth for PS4 init
@@ -201,12 +242,19 @@ void loop() {
       xQueueOverwrite(queueHandle_md, data);
     }
     if(event.button_down.circle){
-      sol_pattern_typedef data = {0b0000001010101010, 0x0000, 500};
-      xQueueOverwrite(queueHandle_sol, &data);
+      xQueueOverwrite(queueHandle_triggers[0], (void*)1);
     }
     if(event.button_down.cross){
-      sol_pattern_typedef data = {0b0000000101010101, 0x0000, 500};
-      xQueueOverwrite(queueHandle_sol, &data);
+      xQueueOverwrite(queueHandle_triggers[1], (void*)1);
+    }
+    if(event.button_down.left){
+      xQueueOverwrite(queueHandle_triggers[2], (void*)1);
+    }
+    if(event.button_down.right){
+      xQueueOverwrite(queueHandle_triggers[3], (void*)1);
+    }
+    if(event.button_down.triangle){
+      xQueueOverwrite(queueHandle_triggers[4], (void*)1);
     }
     if(event.button_down.ps){
       int run = 1;
