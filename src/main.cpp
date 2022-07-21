@@ -83,7 +83,7 @@ void task_md_update(void *id) {
 
 typedef struct{
   uint32_t id;
-  QueueHandle_t run;              //it must be int
+  QueueHandle_t &run;              //it must be int
   QueueHandle_t *solenoids;       //it must be unsigned int queue
   uint8_t num_solenoids;          //up to 10 solenoids
   uint32_t refreash_time;         //refreash time in ms
@@ -114,9 +114,9 @@ void solenoid_task(void *arg) {
 }
 
 typedef struct{
-  QueueHandle_t trigger;          //it msut be int queue
-  QueueHandle_t solenoid1;
-  QueueHandle_t solenoid2;
+  QueueHandle_t &trigger;          //it msut be int queue
+  QueueHandle_t &solenoid1;
+  QueueHandle_t &solenoid2;
   uint32_t t1;
   uint32_t t2;
   uint32_t t3;
@@ -127,17 +127,26 @@ void launcher_task(void *arg) {
   while(1){
     int trigger = 0;
     xQueueReceive(params.trigger,&trigger,portMAX_DELAY);
-    xQueueOverwrite(params.solenoid1, (void*)1);
-    xQueueOverwrite(params.solenoid2, (void*)0);
+
+    int s1 = 1;
+    int s2 = 0;
+    xQueueOverwrite(params.solenoid1, &s1);
+    xQueueOverwrite(params.solenoid2, &s2);
     delay(params.t1);
-    xQueueOverwrite(params.solenoid1, (void*)0);
-    xQueueOverwrite(params.solenoid2, (void*)0);
+    s1 = 0;
+    s2 = 0;
+    xQueueOverwrite(params.solenoid1, &s1);
+    xQueueOverwrite(params.solenoid2, &s2);
     delay(params.t2);
-    xQueueOverwrite(params.solenoid1, (void*)0);
-    xQueueOverwrite(params.solenoid2, (void*)1);
+    s1 = 0;
+    s2 = 1;
+    xQueueOverwrite(params.solenoid1, &s1);
+    xQueueOverwrite(params.solenoid2, &s2);
     delay(params.t3);
-    xQueueOverwrite(params.solenoid1, (void*)0);
-    xQueueOverwrite(params.solenoid2, (void*)0);
+    s1 = 0;
+    s2 = 0;
+    xQueueOverwrite(params.solenoid1, &s1);
+    xQueueOverwrite(params.solenoid2, &s2);
 
     delay(5);
   }
@@ -242,19 +251,24 @@ void loop() {
       xQueueOverwrite(queueHandle_md, data);
     }
     if(event.button_down.circle){
-      xQueueOverwrite(queueHandle_triggers[0], (void*)1);
+      int trig = 1;
+      xQueueOverwrite(queueHandle_triggers[0], &trig);
     }
     if(event.button_down.cross){
-      xQueueOverwrite(queueHandle_triggers[1], (void*)1);
+      int trig = 1;
+      xQueueOverwrite(queueHandle_triggers[1], &trig);
     }
     if(event.button_down.left){
-      xQueueOverwrite(queueHandle_triggers[2], (void*)1);
+      int trig = 1;
+      xQueueOverwrite(queueHandle_triggers[2], &trig);
     }
     if(event.button_down.right){
-      xQueueOverwrite(queueHandle_triggers[3], (void*)1);
+      int trig = 1;
+      xQueueOverwrite(queueHandle_triggers[3], &trig);
     }
     if(event.button_down.triangle){
-      xQueueOverwrite(queueHandle_triggers[4], (void*)1);
+      int trig = 1;
+      xQueueOverwrite(queueHandle_triggers[4], &trig);
     }
     if(event.button_down.ps){
       int run = 1;
