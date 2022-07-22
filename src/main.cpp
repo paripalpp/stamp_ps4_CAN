@@ -93,20 +93,24 @@ void solenoid_task(void *arg) {
   solenoid_task_arg params = *(solenoid_task_arg*)arg;
   int run = 0;
   unsigned int sol_state = 0;
+  unsigned int sol_state_prev = 0;
   delay(50);
   while (1) {
     xQueuePeek(params.run, &run,0);
     if(run){
       for(int i = 0; i < params.num_solenoids; i++){
-        unsigned int rcv_buf = 0;
+        unsigned int rcv_buf = 1 & sol_state >> (params.num_solenoids - i - 1);
         xQueueReceive(params.solenoids[i],&rcv_buf,0);
         sol_state |= rcv_buf << i;
       }
-      CAN.beginPacket(params.id, 2);
-      CAN.write(0xFF & sol_state);
-      CAN.write(0xFF & sol_state >> 8);
-      CAN.endPacket();
-      Serial.printf("sol updated\t id:%d\t data:%x\r\n", params.id, sol_state);
+      if(sol_state != sol_state_prev){
+        CAN.beginPacket(params.id, 2);
+        CAN.write(0xFF & sol_state);
+        CAN.write(0xFF & sol_state >> 8);
+        CAN.endPacket();
+        Serial.printf("sol updated\t id:%d\t data:%x\r\n", params.id, sol_state);
+      }
+      sol_state_prev = sol_state;
     }
 
     delay(params.refreash_time);
